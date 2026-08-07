@@ -5,7 +5,7 @@ import requests
 
 BACKEND_URL = "http://127.0.0.1:8000"
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "qwen2.5-coder:7b"
+MODEL_NAME = "qwen2.5:7b" 
 
 def obtener_leads_nuevos():
     """Obtiene todos los leads del backend y filtra los que tienen estatus 'New'."""
@@ -47,7 +47,6 @@ def analizar_mensaje_con_ia(mensaje):
         texto_ia = resultado.get("response", "").strip()
 
         # Limpieza robusta para extraer el JSON en caso de que la IA incluya texto extra o markdown
-        # Buscar contenido entre llaves { ... }
         match = re.search(r"\{.*\}", texto_ia, re.DOTALL)
         if match:
             json_clean = match.group(0)
@@ -55,8 +54,7 @@ def analizar_mensaje_con_ia(mensaje):
             json_clean = texto_ia
 
         datos_ia = json.loads(json_clean)
-        
-        # Validar y asegurar estructura por defecto si faltan llaves
+
         return {
             "budget": datos_ia.get("budget"),
             "budget_tier": datos_ia.get("budget_tier", "Bajo"),
@@ -64,7 +62,6 @@ def analizar_mensaje_con_ia(mensaje):
         }
     except Exception as e:
         print(f"[ERROR] Error al procesar con IA o parsear el JSON. Detalle: {e}")
-        # Valores por defecto seguros en caso de fallo
         return {
             "budget": None,
             "budget_tier": "Bajo",
@@ -77,18 +74,22 @@ def actualizar_lead_en_backend(lead_id, name, email, phone, raw_message, budget,
         "name": name,
         "email": email,
         "phone": phone,
-        "message": raw_message,
+        "raw_message": raw_message,
         "status": "Qualified",
         "budget": budget,
         "budget_tier": budget_tier,
         "lead_score": lead_score
     }
+    
+    response = None
     try:
         response = requests.put(f"{BACKEND_URL}/leads/{lead_id}", json=payload)
         response.raise_for_status()
         return True
     except Exception as e:
         print(f"[ERROR] No se pudo actualizar el lead {lead_id} en el backend: {e}")
+        if response is not None:
+            print(f"[DETALLE VALIDACIÓN BACKEND] -> {response.text}")
         return False
 
 def ejecutar_orquestacion():
@@ -107,10 +108,10 @@ def ejecutar_orquestacion():
         name = lead["name"]
         email = lead["email"]
         phone = lead.get("phone")
-        mensaje = lead.get("message", "")
+        mensaje = lead.get("raw_message", "")
 
         print(f"\n[LOG] Procesando lead ID {lead_id}: {name} ({email})...")
-        
+
         # Analizar con IA
         analisis = analizar_mensaje_con_ia(mensaje)
         budget = analisis["budget"]
@@ -133,7 +134,6 @@ def ejecutar_orquestacion():
 
         if exito:
             print(f"[LOG] Lead {lead_id} actualizado exitosamente a 'Qualified'.")
-            # Alerta especial si es un lead caliente
             if lead_score >= 70:
                 print(f"[ALERTA - LEADS CALIENTES] ¡Lead de alta prioridad calificado! Enviando notificación automática a WhatsApp y Correo para: {email}")
         else:
